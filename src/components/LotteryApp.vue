@@ -197,7 +197,10 @@ const newUser = ref({
 });
 
 const isNameValid = computed(() => /^[a-zA-Z\s]+$/.test(newUser.value.name));
-const isDobValid = computed(() => newUser.value.dob !== "");
+const isDobValid = computed(() => {
+  const dob = new Date(newUser.value.dob);
+  return dob <= new Date() && newUser.value.dob !== "";
+});
 const isEmailValid = computed(() =>
   /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,4}$/.test(newUser.value.email)
 );

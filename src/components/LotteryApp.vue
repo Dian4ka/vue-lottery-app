@@ -1,38 +1,26 @@
 <template>
-  <div class="wrapper container mt-4">
-    <div class="winners-panel card mb-4">
-      <div class="card-body text-center">
-        <h3 class="winners-title">
-          Winners
-        </h3>
-        <button
-          class="btn btn-primary mb-2 d-flex justify-content-center mx-auto"
-          :disabled="users.length === 0 || winners.length >= 3"
-          @click="selectWinner"
-        >
-          New Winner
-        </button>
+  <div
+    class="wrapper container mt-4"
+    @keyup="handleKeyUp"
+  >
+    <WinnersList
+      :users="users"
+      :winners="winners"
+      @select-winner="selectWinner"
+      @remove-winner="removeWinner"
+    />
 
-        <div class="winner-container d-flex flex-wrap justify-content-center">
-          <div
-            v-for="winner in winners"
-            :key="winner.email"
-            class="winner-badge badge bg-primary me-2 mb-2"
-          >
-            {{ winner.name }}
-            <button
-              class="btn-close btn-close-white ms-2"
-              aria-label="Close"
-              @click="removeWinner(winner.email)"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+    <SearchBar @filter-by-name="handleFilterByName" />
 
+    <RegisterForm />
     <div class="registration-form card mb-4">
       <div class="card-body">
         <h3>Register Form</h3>
+        <form
+          novalidate
+          @submit.prevent="registerUser"
+          @keyup="handleKeyUp"
+        />
         <p class="text-muted spacing">
           Please fill in all the fields.
         </p>
@@ -99,8 +87,12 @@
               type="email"
               class="form-control"
               :class="{
-                'is-invalid': !isEmailValid && isFormSubmitted,
-                'is-valid': isEmailValid && newUser.email && isFormSubmitted,
+                'is-invalid': (!isEmailValid && isFormSubmitted) || emailError,
+                'is-valid':
+                  isEmailValid &&
+                  newUser.email &&
+                  isFormSubmitted &&
+                  !emailError,
               }"
               required
               placeholder="Enter your email"
@@ -110,6 +102,12 @@
               class="invalid-feedback"
             >
               Please enter a valid email.
+            </div>
+            <div
+              v-if="emailError"
+              class="invalid-feedback"
+            >
+              {{ emailError }}
             </div>
           </div>
 
@@ -136,7 +134,12 @@
               Please enter a valid phone number.
             </div>
           </div>
-
+          <div
+            v-if="emailError"
+            class="mb-3 text-danger"
+          >
+            {{ emailError }}
+          </div>
           <div class="mb-3 text-center">
             <button
               type="submit"
@@ -157,35 +160,107 @@
             <thead>
               <tr>
                 <th>#</th>
-                <th>Name</th>
-                <th>Date of Birth</th>
+                <th>ID</th>
+                <th>
+                  Name
+                  <button
+                    class="btn btn-link"
+                    @click="sortByName"
+                  >
+                    <i
+                      :class="
+                        sortOrder.name === 1
+                          ? 'bi bi-sort-alpha-down'
+                          : 'bi bi-sort-alpha-up'
+                      "
+                    />
+                  </button>
+                </th>
+                <th>
+                  Date of Birth
+                  <button
+                    class="btn btn-link"
+                    @click="sortByDob"
+                  >
+                    <i
+                      :class="
+                        sortOrder.dob === 1
+                          ? 'bi bi-sort-down'
+                          : 'bi bi-sort-up'
+                      "
+                    />
+                  </button>
+                </th>
+
                 <th>Email</th>
                 <th>Phone number</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               <tr
-                v-for="(user, index) in users"
-                :key="user.email"
+                v-for="(user, index) in sortedUsers"
+                :key="user.id"
                 class="participant-row"
               >
                 <td>{{ index + 1 }}</td>
+                <td>{{ user.id }}</td>
                 <td>{{ user.name }}</td>
                 <td>{{ user.dob }}</td>
                 <td>{{ user.email }}</td>
                 <td>{{ user.phone }}</td>
+                <td>
+                  <button
+                    class="btn btn-sm btn-warning me-2"
+                    @click="openEditModal(user)"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-sm btn-danger"
+                    @click="openDeleteModal(user)"
+                  >
+                    Видалити
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
     </div>
+
+    <EditModal
+      v-if="isModalOpen"
+      :user="selectedUser"
+      @close="isModalOpen = false"
+      @update="updateUser"
+    />
+    <DeleteModal
+      v-if="isDeleteModalOpen"
+      :participant-to-delete="participantToDelete"
+      @close="isDeleteModalOpen = false"
+      @delete="deleteParticipant"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
+import EditModal from "./EditModal.vue";
+import DeleteModal from "./DeleteModal.vue";
+import SearchBar from "./SearchBar.vue";
+import WinnersList from "./WinnersList.vue";
 
+const props = defineProps({
+  user: Object,
+});
+
+const isDeleteModalOpen = ref(false);
+const participantToDelete = ref(null);
+const editedUser = ref({ ...props.user });
+const selectedUser = ref(null);
+const isModalOpen = ref(false);
 const currentDate = new Date().toISOString().split("T")[0];
 const users = ref([]);
 const winners = ref([]);
@@ -195,6 +270,68 @@ const newUser = ref({
   email: "",
   phone: "",
 });
+
+const query = ref("");
+const emailError = ref("");
+const isFormSubmitted = ref(false);
+
+const filteredUsers = computed(() => {
+  return users.value.filter((user) =>
+    user.name.toLowerCase().includes(query.value.toLowerCase())
+  );
+});
+
+const handleFilterByName = (searchQuery) => {
+  query.value = searchQuery;
+};
+
+const submitForm = () => {
+  if (
+    editedUser.value.name &&
+    editedUser.value.dob &&
+    editedUser.value.email &&
+    editedUser.value.phone
+  ) {
+    emit("update", editedUser.value);
+    emit("close");
+  }
+};
+
+const openEditModal = (user) => {
+  selectedUser.value = user;
+  isModalOpen.value = true;
+};
+
+const updateUser = (updatedUser) => {
+  const index = users.value.findIndex((user) => user.id === updatedUser.id);
+  if (index !== -1) {
+    users.value[index] = { ...updatedUser };
+    saveUsersToLocalStorage();
+    isModalOpen.value = false;
+  }
+};
+
+const emit = defineEmits(["update", "close"]);
+
+const openDeleteModal = (user) => {
+  participantToDelete.value = user;
+  isDeleteModalOpen.value = true;
+  console.log("delete");
+};
+
+const deleteParticipant = () => {
+  if (participantToDelete.value) {
+    const index = users.value.findIndex(
+      (user) => user.id === participantToDelete.value.id
+    );
+    if (index !== -1) {
+      users.value.splice(index, 1);
+      saveUsersToLocalStorage();
+      isDeleteModalOpen.value = false;
+      participantToDelete.value = null;
+    }
+  }
+};
 
 const isNameValid = computed(() => /^[a-zA-Z\s]+$/.test(newUser.value.name));
 const isDobValid = computed(() => {
@@ -210,20 +347,40 @@ const isPhoneValid = computed(() =>
   )
 );
 
-const isFormSubmitted = ref(false);
+const saveUsersToLocalStorage = () => {
+  localStorage.setItem("users", JSON.stringify(users.value));
+};
+
+const loadUsersFromLocalStorage = () => {
+  const storedUsers = localStorage.getItem("users");
+  if (storedUsers) {
+    users.value = JSON.parse(storedUsers);
+  }
+};
 
 const registerUser = () => {
   isFormSubmitted.value = true;
+  emailError.value = "";
 
+  const emailExists = users.value.some(
+    (user) => user.email === newUser.value.email
+  );
+  if (emailExists) {
+    emailError.value = "Учасник з такою електронною поштою вже існує.";
+    return;
+  }
   if (
     isNameValid.value &&
     isDobValid.value &&
     isEmailValid.value &&
     isPhoneValid.value
   ) {
-    users.value.push({ ...newUser.value });
+    const userId = Date.now().toString();
+    users.value.push({ ...newUser.value, id: userId });
 
     newUser.value = { name: "", dob: "", email: "", phone: "" };
+
+    saveUsersToLocalStorage();
 
     isFormSubmitted.value = false;
   }
@@ -244,9 +401,63 @@ const selectWinner = () => {
   winners.value.push(selectedWinner);
 };
 
-const removeWinner = (email) => {
-  winners.value = winners.value.filter((winner) => winner.email !== email);
+const removeWinner = (id) => {
+  winners.value = winners.value.filter((winner) => winner.id !== id);
 };
+const handleKeyUp = (event) => {
+  if (event.key === "Enter") {
+    registerUser();
+  } else if (event.key === "Escape") {
+    isModalOpen.value = false;
+    isDeleteModalOpen.value = false;
+  }
+};
+const sortOrder = ref({
+  name: 1,
+  dob: 1,
+});
+const sortedUsers = computed(() => {
+  const usersCopy = [...filteredUsers.value];
+
+  usersCopy.sort((a, b) => {
+    if (sortOrder.value.name !== 0) {
+      const nameComparison =
+        sortOrder.value.name === 1
+          ? a.name.localeCompare(b.name)
+          : b.name.localeCompare(a.name);
+
+      if (nameComparison !== 0) return nameComparison;
+    }
+
+    if (sortOrder.value.dob !== 0) {
+      return sortOrder.value.dob === 1
+        ? new Date(a.dob) - new Date(b.dob)
+        : new Date(b.dob) - new Date(a.dob);
+    }
+
+    return 0;
+  });
+
+  return usersCopy;
+});
+
+const sortByName = () => {
+  sortOrder.value.name *= -1;
+
+  sortOrder.value.dob = 0;
+};
+
+const sortByDob = () => {
+  sortOrder.value.dob *= -1;
+  sortOrder.value.name = 0;
+};
+
+onMounted(() => {
+  const storedUsers = localStorage.getItem("users");
+  if (storedUsers) {
+    users.value = JSON.parse(storedUsers);
+  }
+});
 </script>
 
 <style scoped>
@@ -281,5 +492,13 @@ input.form-control {
 }
 .spacing {
   margin-bottom: 20px;
+}
+.btn-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.btn-link:hover {
+  color: #007bff;
 }
 </style>

@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "vee-validate": "^4.14.6"
+  },
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "format": "prettier --write .",
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@vue/cli-service": "^5.0.8"
+  }
+}
